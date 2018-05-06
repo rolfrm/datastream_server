@@ -83,23 +83,27 @@ static void activity_update(const data_stream * s, const void * data, size_t len
   UNUSED(data);
   UNUSED(length);
   listen_ctx * ctx = userdata;
-  for(size_t i = 0; i < ctx->activity_count; i++){
-    if(memcmp(ctx->activitys[i], s->name, ctx->activity_length[i]) == 0)
-      return;
-  }
   iron_mutex_lock(ctx->lock);
+  for(size_t i = 0; i < ctx->activity_count; i++){
+    if(memcmp(ctx->activitys[i], s->name, ctx->activity_length[i]) == 0){
+      iron_mutex_unlock(ctx->lock);
+      return;
+    }
+  }
+
   ctx->activitys = ralloc(ctx->activitys, sizeof(ctx->activitys[0]) * (ctx->activity_count += 1));
   ctx->activity_length = ralloc(ctx->activity_length, sizeof(ctx->activity_length[0]) * ctx->activity_count);
   ctx->activity_state = ralloc(ctx->activity_state, sizeof(ctx->activity_state[0]) * ctx->activity_count);
   ctx->activitys[ctx->activity_count - 1]= iron_clone(s->name, strlen(s->name) + 1);
   ctx->activity_length[ctx->activity_count - 1] = strlen(s->name) + 1;
   ctx->activity_state[ctx->activity_count - 1] = ENABLED;
-  data_stream_listen(ctx->data_listener, (data_stream *) s);
+
   iron_mutex_unlock(ctx->lock);
+  data_stream_listen(ctx->data_listener, (data_stream *) s);
 }
 
 static void data_update(const data_stream * s, const void * data, size_t length, void * userdata){
-  logd("Got data.. %s\n", data);
+  if(data == NULL) return;
   //ASSERT(data != NULL);
   size_t _length = strlen(s->name) + 1 + length + sizeof(message_list);
   listen_ctx * ctx = userdata;
@@ -112,7 +116,7 @@ static void data_update(const data_stream * s, const void * data, size_t length,
     if(prev != NULL)
       nxt = prev->next;
     
-    if(!__sync_bool_compare_and_swap(&ctx->prev, prev, nxt))
+    if(!__sync_bool_compare_and_swap(&ctx->prev, nxt, prev))
       goto try_again;
     thing = prev;
   }
@@ -128,9 +132,10 @@ static void data_update(const data_stream * s, const void * data, size_t length,
   { // interlocked replace
     
   try_again2:;
+
     message_list * nxt = ctx->messages;
     thing->next = nxt;
-    if(!__sync_bool_compare_and_swap(&ctx->messages, thing, nxt))
+    if(!__sync_bool_compare_and_swap(&ctx->messages, nxt, thing))
       goto try_again2;
   }
   
@@ -145,8 +150,8 @@ static struct MHD_Daemon * start_server(){
   activity_listener->userdata = ctx;
 
   data_stream_listener * data_listener = alloc0(sizeof(data_stream_listener));
-  activity_listener->process = data_update;
-  activity_listener->userdata = ctx;
+  data_listener->process = data_update;
+  data_listener->userdata = ctx;
 
   
   ctx->listener = activity_listener;
@@ -155,6 +160,7 @@ static struct MHD_Daemon * start_server(){
   ctx->activity_length = NULL;
   ctx->activity_count = 0;
   ctx->lock = iron_mutex_create();
+  iron_mutex_unlock(ctx->lock);
   struct MHD_Daemon *daemon;
 
   daemon = MHD_start_daemon (MHD_USE_SELECT_INTERNALLY, PORT, NULL, NULL,
