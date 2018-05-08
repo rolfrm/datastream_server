@@ -51,27 +51,75 @@ answer_to_connection (void *cls, struct MHD_Connection *connection,
                       const char *version, const char *upload_data,
                       size_t *upload_data_size, void **con_cls)
 {
+  
   UNUSED(method);
   UNUSED(version);
   UNUSED(upload_data);
   UNUSED(upload_data_size);
   UNUSED(con_cls);
-  dmsg(weblog, "URL: %s\n", url);  
-  listen_ctx * ctx = cls;
-
-  char message[4000];
+  dmsg(weblog, "URL: %s\n", url);
+  size_t count = 4;
+  char * message = alloc(count);
   char * msg = message;
-  msg += sprintf(msg,"<html><body>");
 
+  void fmt(const char * _fmt, ...){
+
+    va_list args;
+    va_start (args, _fmt);
+  retry_printf:;
+    size_t n = msg - message;
+    size_t max_write = count - n;
+    size_t cnt;
+    if(max_write <= 1){
+      cnt = strlen(_fmt);
+    }else{
+      cnt = vsnprintf(msg, max_write, _fmt, args);
+    }
+    if(cnt > 0){
+      //logd("cnt: %i %i %i\n", cnt, n, count);
+      if(cnt >= max_write){
+	message = ralloc(message, (count = (count + cnt) * 2));
+	msg = message + n;
+	goto retry_printf;
+      }
+      msg += cnt;
+    }
+    va_end(args);
+  }
+
+
+  fmt("<html><body>");
+  listen_ctx * ctx = cls;
   for(size_t i = 0; i< ctx->activity_count; i++){
     dlog(weblog, ctx->activitys[i], ctx->activity_length[i]);  
-    msg += sprintf(msg,"<p>%s</p>", ctx->activitys[i]);    
+    fmt("<input type=\"checkbox\">%s</input>", ctx->activitys[i]);    
   }
-  msg += sprintf(msg,"</body></html>");
+  fmt("<h3>Messages:</h3>");  
+  if(ctx->messages != NULL){
+    var to_send = __sync_lock_test_and_set(&(ctx->messages), NULL);
+    var it = to_send;
+    var last = to_send;
+    while(it != NULL){
+      fmt("<p>%s</p>", it->message);
+      if(it->next == NULL){
+	last = it;
+	break;
+      }
+      it = it->next;
+    }
+    
+  retry_set:;
+    last->next = ctx->prev;
+    if(!__sync_bool_compare_and_swap(&(ctx->prev), ctx->prev, to_send))
+      goto retry_set; //someone else set prev, retry instead.
+    
+  }
+  
+  fmt("</body></html>");
   size_t len = msg - message;
   dmsg(weblog, "Response of : %i bytes\n", len);  
   var response =
-     MHD_create_response_from_buffer (len, message,MHD_RESPMEM_MUST_COPY);
+     MHD_create_response_from_buffer (len, message,MHD_RESPMEM_MUST_FREE);
    
   int ret =  MHD_queue_response (connection, MHD_HTTP_OK,response);
   MHD_destroy_response(response);
@@ -94,7 +142,7 @@ static void activity_update(const data_stream * s, const void * data, size_t len
   ctx->activitys = ralloc(ctx->activitys, sizeof(ctx->activitys[0]) * (ctx->activity_count += 1));
   ctx->activity_length = ralloc(ctx->activity_length, sizeof(ctx->activity_length[0]) * ctx->activity_count);
   ctx->activity_state = ralloc(ctx->activity_state, sizeof(ctx->activity_state[0]) * ctx->activity_count);
-  ctx->activitys[ctx->activity_count - 1]= iron_clone(s->name, strlen(s->name) + 1);
+  ctx->activitys[ctx->activity_count - 1]= fmtstr("%s", s->name);// iron_clone(s->name, strlen(s->name) + 1);
   ctx->activity_length[ctx->activity_count - 1] = strlen(s->name) + 1;
   ctx->activity_state[ctx->activity_count - 1] = ENABLED;
 
@@ -105,7 +153,7 @@ static void activity_update(const data_stream * s, const void * data, size_t len
 static void data_update(const data_stream * s, const void * data, size_t length, void * userdata){
   if(data == NULL) return;
   //ASSERT(data != NULL);
-  size_t _length = strlen(s->name) + 1 + length + sizeof(message_list);
+  size_t _length = strlen(s->name) + 1 + length + sizeof(message_list) + 1;
   listen_ctx * ctx = userdata;
   message_list * thing = NULL;
 
@@ -116,9 +164,12 @@ static void data_update(const data_stream * s, const void * data, size_t length,
     if(prev != NULL)
       nxt = prev->next;
     
-    if(!__sync_bool_compare_and_swap(&ctx->prev, nxt, prev))
+    if(!__sync_bool_compare_and_swap(&ctx->prev, prev, nxt))
       goto try_again;
     thing = prev;
+    if(prev != NULL){
+      //logd("Reuse! %p %p\n", prev, ctx->prev);
+    }
   }
   
   thing = ralloc(thing, _length);
@@ -126,8 +177,10 @@ static void data_update(const data_stream * s, const void * data, size_t length,
   
   thing->length = length;
   thing->name = buf + sizeof(message_list);
-  thing->message = buf + (_length - length);
+  memcpy((char *)thing->name, s->name, strlen(s->name) + 1);
+  thing->message = buf + (_length - length) - 2;
   memcpy(thing->message, data, length);
+  ((char *)thing->message)[length] = 0;
 
   { // interlocked replace
     
@@ -160,7 +213,7 @@ static struct MHD_Daemon * start_server(){
   ctx->activity_length = NULL;
   ctx->activity_count = 0;
   ctx->lock = iron_mutex_create();
-  iron_mutex_unlock(ctx->lock);
+  //iron_mutex_unlock(ctx->lock);
   struct MHD_Daemon *daemon;
 
   daemon = MHD_start_daemon (MHD_USE_SELECT_INTERNALLY, PORT, NULL, NULL,
