@@ -42,21 +42,12 @@ typedef struct{
 static data_stream weblog = {.name = "dlog web"};
 
 static void get_system_update(listen_ctx * ctx, void (*fmt)(const char * _fmt, ...)){
-  fmt("<html><body>");
-  for(size_t i = 0; i< ctx->activity_count; i++){
-    dlog(weblog, ctx->activitys[i], ctx->activity_length[i]);
-    bool active = false;
-    if(ctx->activity_state[i] == ACTIVITY_ENABLED || ctx->activity_state[i] == ACTIVITY_WAITING_FOR_ENABLED)
-      active = true;
-    fmt("<input type=\"checkbox\" %s>%s</input>", active ? "checked" : "", ctx->activitys[i]);    
-  }
-  fmt("<h3>Messages:</h3>");  
   if(ctx->messages != NULL){
     var to_send = __sync_lock_test_and_set(&(ctx->messages), NULL);
     var it = to_send;
     var last = to_send;
     while(it != NULL){
-      fmt("<p>%s</p>", it->message);
+      fmt("%s    %s\n", it->name, it->message);
       if(it->next == NULL){
 	last = it;
 	break;
@@ -67,11 +58,8 @@ static void get_system_update(listen_ctx * ctx, void (*fmt)(const char * _fmt, .
   retry_set:;
     last->next = ctx->prev;
     if(!__sync_bool_compare_and_swap(&(ctx->prev), ctx->prev, to_send))
-      goto retry_set; //someone else set prev, retry instead.
-    
+      goto retry_set; //someone else set prev, retry instead.    
   }
-  
-  fmt("</body></html>");
 }
 
 static void get_activities(listen_ctx * ctx, void (*fmt)(const char * _fmt, ...)){
@@ -84,9 +72,9 @@ static void get_activities(listen_ctx * ctx, void (*fmt)(const char * _fmt, ...)
   }
 }
 
-static void read_index_file(listen_ctx * ctx, void (*fmt)(const char * _fmt, ...)){
+static void read_index_file(listen_ctx * ctx, void (*fmt)(const char * _fmt, ...), const char * file){
   UNUSED(ctx);
-  var filecontent = read_file_to_string("page_header.html");
+  var filecontent = read_file_to_string(file);
   fmt("%s", filecontent);
   dealloc(filecontent);
 }
@@ -110,7 +98,7 @@ answer_to_connection (void *cls, struct MHD_Connection *connection,
   UNUSED(upload_data_size);
   UNUSED(con_cls);
 
-  dmsg(weblog, "URL: '%s'\n", url);
+  //dmsg(weblog, "URL: '%s'\n", url);
   
   size_t count = 4;
   char * message = alloc(count);
@@ -131,7 +119,7 @@ answer_to_connection (void *cls, struct MHD_Connection *connection,
     }else{
       va_list args;
       va_start (args, _fmt);
-      cnt = vsnprintf(msg, max_write - 1, _fmt, args);
+      cnt = vsnprintf(msg, max_write, _fmt, args);
       va_end(args);
     }
     if(cnt > 0){
@@ -147,12 +135,21 @@ answer_to_connection (void *cls, struct MHD_Connection *connection,
   if(strcmp("/activities", url) == 0){
     get_activities(ctx, fmt);
   }else if(strcmp("/update", url) == 0){
-    get_system_update(ctx, fmt);
-  }else{
-    read_index_file(ctx, fmt);
-  }
-
-  var response = MHD_create_response_from_buffer (count, message,MHD_RESPMEM_MUST_FREE);
+    //dmsg(weblog, "Update");
+    var time1 = timestampf();
+    while((timestampf() - time1) < 5){
+      if(ctx->messages != NULL)
+	break;
+    }
+    if(ctx->messages != NULL)
+      get_system_update(ctx, fmt);
+  }else if(strcmp("/style.css", url) == 0){
+    read_index_file(ctx, fmt, "style.css");
+  }else
+    read_index_file(ctx, fmt, "page_header.html");
+  message[msg - message] = 0;
+  dmsg(weblog, "Sending %i", strlen(message));
+  var response = MHD_create_response_from_buffer (strlen(message), message,MHD_RESPMEM_MUST_FREE);
    
   int ret =  MHD_queue_response (connection, MHD_HTTP_OK,response);
   MHD_destroy_response(response);
@@ -211,7 +208,7 @@ static void data_update(const data_stream * s, const void * data, size_t length,
   thing->length = length;
   thing->name = buf + sizeof(message_list);
   memcpy((char *)thing->name, s->name, strlen(s->name) + 1);
-  thing->message = buf + (_length - length) - 2;
+  thing->message = buf + (_length - length) - 1;
   memcpy(thing->message, data, length);
   ((char *)thing->message)[length] = 0;
 
@@ -224,8 +221,9 @@ static void data_update(const data_stream * s, const void * data, size_t length,
     if(!__sync_bool_compare_and_swap(&ctx->messages, nxt, thing))
       goto try_again2;
   }
-  
 }
+
+
 
 static struct MHD_Daemon * start_server(){
   listen_ctx * ctx = alloc0(sizeof(*ctx));
