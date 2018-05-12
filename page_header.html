@@ -3,50 +3,12 @@
     <link rel="stylesheet" href="style.css">
   </head>
   <body>
-<script>
-
-  function req(url, then){
-      httpRequest = new XMLHttpRequest();
-
-
-      if (!httpRequest) {
-        return false;
-      }
-      httpRequest.onreadystatechange = alertContents;
-      httpRequest.open('GET', url);
-      httpRequest.send();
-  
-
-      function alertContents() {
-         if (httpRequest.readyState === XMLHttpRequest.DONE) {
-
-           if (httpRequest.status === 200) {
-            then(httpRequest.responseText);
-           }
-        }
-      }
-  }
-  
-function makeRequest() {
-  function updatetext(txt){
-  var cb = document.getElementById("checkBox");
-  var areas = document.getElementById("text");
-  var element = document.createElement("textarea");
-  areas.appendChild(element);
-  element.textContent += txt;
-  if(cb.checked)
-     areas.scrollTo(0,areas.scrollHeight);
-  
-      makeRequest();
-   }
-   req("/update", updatetext);
-  }
-  window.addEventListener("load", makeRequest);
-  
-  
-</script>
+<script src="page.js"></script>
 <div>
-<input id="checkBox"  type="checkbox" >Scroll To Bottom</input>
+  <input id="checkBox"  type="checkbox" >Scroll To Bottom</input>
+  <div id="activities">
+     <input type="checkbox" >Test1</input>
+  </div>
 </div>
 
 <div id="text" style="overflow:auto; height:700px">
