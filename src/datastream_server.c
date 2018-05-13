@@ -42,23 +42,38 @@ typedef struct{
 static data_stream weblog = {.name = "dlog web"};
 
 
-static void mark_activity(listen_ctx * ctx, const char * name, activity_state state, bool override_state){
+static void mark_activity(listen_ctx * ctx, const char * name, activity_state state, bool override_state, const data_stream * s){
   iron_mutex_lock(ctx->lock);
+
   for(size_t i = 0; i < ctx->activity_count; i++){
     if(memcmp(ctx->activitys[i], name, ctx->activity_length[i]) == 0){
-
+      var curstate = ctx->activity_state[i];
       if(override_state){
-	var curstate = ctx->activity_state[ctx->activity_count - 1];
-	if(curstate == ACTIVITY_ENABLED && curstate == ACTIVITY_WAITING_FOR_ENABLED && state == ACTIVITY_DISABLED)
-	  ctx->activity_state[ctx->activity_count - 1] = ACTIVITY_WAITING_FOR_DISABLED;
-	if(curstate == ACTIVITY_DISABLED && curstate == ACTIVITY_WAITING_FOR_DISABLED && state == ACTIVITY_ENABLED)
-	  ctx->activity_state[ctx->activity_count - 1] = ACTIVITY_WAITING_FOR_ENABLED;
+
+
+	if((curstate == ACTIVITY_ENABLED || curstate == ACTIVITY_WAITING_FOR_ENABLED) && state == ACTIVITY_DISABLED){
+	  ctx->activity_state[i] = ACTIVITY_WAITING_FOR_DISABLED;
+	}else if((curstate == ACTIVITY_DISABLED || curstate == ACTIVITY_WAITING_FOR_DISABLED) && state == ACTIVITY_ENABLED){
+	  ctx->activity_state[i] = ACTIVITY_WAITING_FOR_ENABLED;
+	}
+      }else{
+	
+	if(curstate == ACTIVITY_WAITING_FOR_ENABLED){
+	  data_stream_listen(ctx->data_listener, (data_stream *) s);
+	  ctx->activity_state[i] = ACTIVITY_ENABLED;
+
+
+	}else if(curstate == ACTIVITY_WAITING_FOR_DISABLED){
+	  ctx->activity_state[i] = ACTIVITY_DISABLED;
+	  data_stream_unlisten(ctx->data_listener, (data_stream *) s);
+	}
       }
+
+	
       iron_mutex_unlock(ctx->lock);
       return;
     }
   }
-
   ctx->activitys = ralloc(ctx->activitys, sizeof(ctx->activitys[0]) * (ctx->activity_count += 1));
   ctx->activity_length = ralloc(ctx->activity_length, sizeof(ctx->activity_length[0]) * ctx->activity_count);
   ctx->activity_state = ralloc(ctx->activity_state, sizeof(ctx->activity_state[0]) * ctx->activity_count);
@@ -66,9 +81,9 @@ static void mark_activity(listen_ctx * ctx, const char * name, activity_state st
   ctx->activity_length[ctx->activity_count - 1] = strlen(name) + 1;
   ctx->activity_state[ctx->activity_count - 1] = state;
   var curstate = ctx->activity_state[ctx->activity_count - 1];
-  if(curstate == ACTIVITY_ENABLED && curstate == ACTIVITY_WAITING_FOR_ENABLED && state == ACTIVITY_DISABLED)
+  if((curstate == ACTIVITY_ENABLED || curstate == ACTIVITY_WAITING_FOR_ENABLED) && state == ACTIVITY_DISABLED)
     ctx->activity_state[ctx->activity_count - 1] = ACTIVITY_WAITING_FOR_DISABLED;
-  if(curstate == ACTIVITY_DISABLED && curstate == ACTIVITY_WAITING_FOR_DISABLED && state == ACTIVITY_ENABLED)
+  else if((curstate == ACTIVITY_DISABLED || curstate == ACTIVITY_WAITING_FOR_DISABLED) && state == ACTIVITY_ENABLED)
     ctx->activity_state[ctx->activity_count - 1] = ACTIVITY_WAITING_FOR_ENABLED;
   
   iron_mutex_unlock(ctx->lock);
@@ -98,6 +113,7 @@ static void get_system_update(listen_ctx * ctx, void (*fmt)(const char * _fmt, .
 
 static void get_activities(listen_ctx * ctx, void (*fmt)(const char * _fmt, ...), char * body){
   char * str = body;
+
   while(str != NULL){
     char * val = strstr(str, ":");
     if(val == NULL) break;
@@ -113,12 +129,14 @@ static void get_activities(listen_ctx * ctx, void (*fmt)(const char * _fmt, ...)
     char value[nxt - val + 1];
     memcpy(value, val, nxt - val + 1);
     value[nxt - val - 1 + 1] = 0;
-    mark_activity(ctx, name, value[0] == '0' ? ACTIVITY_DISABLED : ACTIVITY_ENABLED, true);
+
+    mark_activity(ctx, name, value[0] == '0' ? ACTIVITY_DISABLED : ACTIVITY_ENABLED, true, NULL);
     
     str = nxt + 1;
   }
 
   //char buffer[100];
+  bool first = true;
   for(size_t i = 0; i< ctx->activity_count; i++){
     dlog(weblog, ctx->activitys[i], ctx->activity_length[i]);
 
@@ -127,9 +145,14 @@ static void get_activities(listen_ctx * ctx, void (*fmt)(const char * _fmt, ...)
     //logd("Inner: %s\n, nxt: %s\n", inner, nxt);
     //str = nxt + 1;
     bool active = false;
+    if(first){
+      first = false;
+    }else{
+      fmt(",");
+    }
     if(ctx->activity_state[i] == ACTIVITY_ENABLED || ctx->activity_state[i] == ACTIVITY_WAITING_FOR_ENABLED)
       active = true;
-    fmt("%s: %s\n", ctx->activitys[i], active ? "checked" : "");    
+    fmt("%s:%s", ctx->activitys[i], active ? "1" : "0");    
   }
 }
 
@@ -234,14 +257,19 @@ answer_to_connection (void * cls
   }else if(strcmp("/update", url) == 0){
     var time1 = timestampf();
   goback:;
-    while((timestampf() - time1) < 5){
+    while((timestampf() - time1) < 0.1){
       if(ctx->messages != NULL)
 	break;
+      iron_usleep(10000);
     }
-    if(ctx->messages != NULL)
+    if(ctx->messages != NULL){
       get_system_update(ctx, fmt);
-    if(msg - message == 0)
+    }
+    if(msg - message == 0 && (timestampf() - time1) < 0.1)
       goto goback;
+    else if(msg - message == 0){
+      // timeout
+    }
   }else if(strcmp("/style.css", url) == 0){
     read_index_file(ctx, fmt, "style.css");
   }else if(strcmp("/page.js", url) == 0){
@@ -249,12 +277,11 @@ answer_to_connection (void * cls
   }else
     read_index_file(ctx, fmt, "page_header.html");
   message[msg - message] = 0;
-  dmsg(weblog, "Sending %i", strlen(message));
-  var response = MHD_create_response_from_buffer (strlen(message), message,MHD_RESPMEM_MUST_FREE);
-   
+
+  var response = MHD_create_response_from_buffer (strlen(message), message, MHD_RESPMEM_MUST_FREE);
   int ret =  MHD_queue_response (connection, MHD_HTTP_OK,response);
   MHD_destroy_response(response);
-
+  dmsg(weblog, "Sending to %s:  %i    ret: %i", url, strlen(message), ret);
   return ret;
 }
 
@@ -263,8 +290,8 @@ static void activity_update(const data_stream * s, const void * data, size_t len
   UNUSED(data);
   UNUSED(length);
   listen_ctx * ctx = userdata;
-  mark_activity(ctx, s->name, ACTIVITY_ENABLED, false);
-  data_stream_listen(ctx->data_listener, (data_stream *) s);
+  mark_activity(ctx, s->name, ACTIVITY_DISABLED, false, s);
+  //data_stream_listen(ctx->data_listener, (data_stream *) s);
 }
 
 static void data_update(const data_stream * s, const void * data, size_t length, void * userdata){

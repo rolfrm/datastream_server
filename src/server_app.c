@@ -17,10 +17,12 @@ int main(){
 
   static data_stream src = {.name = "Test1"};
   static data_stream src2 = {.name = "Test2"};
+  static data_stream src3 = {.name = "Testing 3"};
   int x = 2;
   while(true){
     iron_usleep(1000000);
     dmsg(src, "%i Hello?", x);
+    dmsg(src3, "_____ %i Hello?", x);
     if(x % 1000 == 0){
       
       dmsg(src2, "Hello? ????");
