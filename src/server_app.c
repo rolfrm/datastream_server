@@ -20,7 +20,7 @@ int main(){
   static data_stream src3 = {.name = "Testing 3"};
   int x = 2;
   while(true){
-    iron_usleep(1000000);
+    iron_usleep(10000);
     dmsg(src, "%i Hello?", x);
     dmsg(src3, "_____ %i Hello?", x);
     if(x % 1000 == 0){

@@ -69,7 +69,7 @@ function req(url, then, body){
         }
     }
     httpRequest.onreadystatechange = alertContents;
-    httpRequest.send(body);
+    httpRequest.send(body,true);
 }
 
 function makeRequest() {
@@ -78,31 +78,46 @@ function makeRequest() {
 	function next(str){
 	    update_activities(str);
 	    var body = format_activities();
-	    req("/activities", next, body);
+	    window.setTimeout( function(){
+		req("/activities", next, body);
+	    }, 500);
+
 	}
 	req("/activities", next, format_activities());
     }
     
     function updatetext(txt){
-	if(txt === ""){
-
-	}else{
-
 	
+	if(false){
 	    var areas = document.getElementById("text");
-	    var element = document.createTextNode(txt);
-	    areas.appendChild(element);
-	    var br = document.createElement("br");
-	    areas.appendChild(br);
-	    //element.textContent += txt;
-
-
+	    var splt = txt.split("\n");
+	    for(var _x in splt){
+		var x = splt[_x];
+		if(x === "")
+		    continue;
+		
+		var element = document.createTextNode(x);
+		areas.appendChild(element);
+		var br = document.createElement("br");
+		areas.appendChild(br);
+	    }
+	    var cb = document.getElementById("checkBox");
+	    if(cb.checked)
+		areas.scrollTo(0,areas.scrollHeight);
 	}
-	var cb = document.getElementById("checkBox");
-	if(cb.checked)
-	    areas.scrollTo(0,areas.scrollHeight);
-	req("/update", updatetext, null);
+	if(true){
+	    var area = document.getElementById("text2");
+	    area.value += txt;
+	    var cb = document.getElementById("checkBox");
+	    if(area.value.length > 20000)
+		area.value = area.value.substring(10000,20000);
+	    if(cb.checked)
+		area.scrollTo(0,area.scrollHeight);
 	}
+	window.setTimeout( function(){
+	    req("/update", updatetext, null);
+	}, 200);
+    }
     req("/update", updatetext, null);
     update_activities2();
 }

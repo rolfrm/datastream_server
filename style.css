@@ -6,8 +6,8 @@ html, body {
 textarea {
     margin: 0;
     width: 100%;
-    border: none;
-    resize:none;
-    overflow:hidden;
+    //border: none;
+    //resize:none;
+    //overflow:hidden;
 }
 

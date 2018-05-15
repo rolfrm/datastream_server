@@ -28,3 +28,8 @@ test: $(TARGET) obj/server_app.o
 	$(CC) $(OPT) $(LIB_OBJECTS) obj/server_app.o $(LIBS)  -o $@
 
 -include $(LIB_OBJECTS:.o=.o.depends)
+
+install: $(TARGET)
+	mkdir -v /usr/include/iron |true
+	cp -v ./*.h /usr/include/iron
+	cp -v ./libdatastream_server.so /usr/lib/

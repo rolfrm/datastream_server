@@ -46,7 +46,7 @@ static void mark_activity(listen_ctx * ctx, const char * name, activity_state st
   iron_mutex_lock(ctx->lock);
 
   for(size_t i = 0; i < ctx->activity_count; i++){
-    if(memcmp(ctx->activitys[i], name, ctx->activity_length[i]) == 0){
+    if(strncmp(ctx->activitys[i], name, ctx->activity_length[i]) == 0){
       var curstate = ctx->activity_state[i];
       if(override_state){
 
@@ -135,15 +135,10 @@ static void get_activities(listen_ctx * ctx, void (*fmt)(const char * _fmt, ...)
     str = nxt + 1;
   }
 
-  //char buffer[100];
   bool first = true;
   for(size_t i = 0; i< ctx->activity_count; i++){
     dlog(weblog, ctx->activitys[i], ctx->activity_length[i]);
 
-    //char * inner = strstr(str, "|");
-    //char * nxt = strstr(inner, ";");
-    //logd("Inner: %s\n, nxt: %s\n", inner, nxt);
-    //str = nxt + 1;
     bool active = false;
     if(first){
       first = false;
@@ -187,8 +182,7 @@ answer_to_connection (void * cls
   UNUSED(upload_data_size);
   UNUSED(con_cls);
 
-  dmsg(weblog, "URL: '%s'\n", url);
-  iron_usleep(100000);
+  //dmsg(weblog, "URL: '%s'\n", url);
 
   size_t count = 4;
   char * message = alloc(count);
@@ -335,8 +329,10 @@ static void data_update(const data_stream * s, const void * data, size_t length,
 }
 
 static struct MHD_Daemon * start_server(){
+  //const char * getenv("DATASTREAM_SERVER_ROOT");
+  // TODO: Implement support for setting where the datastream server data can be loaded from e.g. /usr/include/iron/.
   listen_ctx * ctx = alloc0(sizeof(*ctx));
-  logd("CTX1: %p\n", ctx);
+
   data_stream_listener * activity_listener = alloc0(sizeof(data_stream_listener));
   data_stream_listen_activity(activity_listener);
   activity_listener->process = activity_update;
@@ -353,7 +349,7 @@ static struct MHD_Daemon * start_server(){
   ctx->activity_length = NULL;
   ctx->activity_count = 0;
   ctx->lock = iron_mutex_create();
-  //iron_mutex_unlock(ctx->lock);
+
   struct MHD_Daemon *daemon;
 
   daemon = MHD_start_daemon (MHD_USE_SELECT_INTERNALLY | MHD_USE_DEBUG, PORT, NULL, NULL, answer_to_connection,ctx, MHD_OPTION_END);
