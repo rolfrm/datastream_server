@@ -31,5 +31,7 @@ test: $(TARGET) obj/server_app.o
 
 install: $(TARGET)
 	mkdir -v /usr/include/iron |true
-	cp -v ./*.h /usr/include/iron
+	mkdir -v /usr/lib/libdatastream |true
+	cp -v ./src/*.h /usr/include/iron
 	cp -v ./libdatastream_server.so /usr/lib/
+	cp -v ./page_header.html ./page.js ./style.css /usr/lib/libdatastream

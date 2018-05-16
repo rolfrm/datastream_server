@@ -8,6 +8,7 @@
 #include <microhttpd.h>
 #include <stdio.h>
 #include <iron/full.h>
+#include "datastream_server.h"
 #define PORT 8888
 
 typedef enum{
@@ -37,7 +38,17 @@ typedef struct{
   iron_mutex lock;
   message_list * messages;
   message_list * prev;
+  const char * root;
+  struct MHD_Daemon *daemon;
+  int last_connect;
 }listen_ctx;
+
+static const char * translate_dir(const char * root, const char * path){
+  static __thread char buffer[1000];
+  if(root == NULL || strlen(root) == 0) return path;
+  sprintf(buffer, "%s/%s", root, path);
+  return buffer;
+}
 
 static data_stream weblog = {.name = "dlog web"};
 
@@ -188,6 +199,7 @@ answer_to_connection (void * cls
   char * message = alloc(count);
   char * msg = message;
   listen_ctx * ctx = cls;
+  ctx->last_connect += 1;
   
   void fmt(const char * _fmt, ...){
 
@@ -265,11 +277,11 @@ answer_to_connection (void * cls
       // timeout
     }
   }else if(strcmp("/style.css", url) == 0){
-    read_index_file(ctx, fmt, "style.css");
+    read_index_file(ctx, fmt, translate_dir(ctx->root, "style.css"));
   }else if(strcmp("/page.js", url) == 0){
-    read_index_file(ctx, fmt, "page.js");
+    read_index_file(ctx, fmt, translate_dir(ctx->root, "page.js"));
   }else
-    read_index_file(ctx, fmt, "page_header.html");
+    read_index_file(ctx, fmt, translate_dir(ctx->root, "page_header.html"));
   message[msg - message] = 0;
 
   var response = MHD_create_response_from_buffer (strlen(message), message, MHD_RESPMEM_MUST_FREE);
@@ -328,10 +340,19 @@ static void data_update(const data_stream * s, const void * data, size_t length,
   }
 }
 
-static struct MHD_Daemon * start_server(){
+static listen_ctx * start_server(){
   //const char * getenv("DATASTREAM_SERVER_ROOT");
   // TODO: Implement support for setting where the datastream server data can be loaded from e.g. /usr/include/iron/.
+  const char * root;
+  if(file_exists("page_header.html"))
+    root = "";
+  else{
+    root = getenv("DATASTREAM_SERVER_ROOT");
+  }
+
+  ASSERT(file_exists(translate_dir(root, "page_header.html")));
   listen_ctx * ctx = alloc0(sizeof(*ctx));
+  ctx->root = root;
 
   data_stream_listener * activity_listener = alloc0(sizeof(data_stream_listener));
   data_stream_listen_activity(activity_listener);
@@ -350,26 +371,33 @@ static struct MHD_Daemon * start_server(){
   ctx->activity_count = 0;
   ctx->lock = iron_mutex_create();
 
-  struct MHD_Daemon *daemon;
-
-  daemon = MHD_start_daemon (MHD_USE_SELECT_INTERNALLY | MHD_USE_DEBUG, PORT, NULL, NULL, answer_to_connection,ctx, MHD_OPTION_END);
-  return daemon;
+  ctx->daemon = MHD_start_daemon (MHD_USE_SELECT_INTERNALLY | MHD_USE_DEBUG, PORT, NULL, NULL, answer_to_connection,ctx, MHD_OPTION_END);
+  return ctx;
 }
 
 int run_server_main ()
 {
   
-  struct MHD_Daemon *daemon = start_server();
+  var ctx = start_server();
 
-  if (NULL == daemon)
+  if (NULL == ctx->daemon)
     return 1;
 
   (void) getchar ();
 
-  MHD_stop_daemon (daemon);
+  MHD_stop_daemon (ctx->daemon);
   return 0;
 }
 
-void datalog_server_run(){
-  start_server();
+datastream_server * datastream_server_run(){
+  return (datastream_server *) start_server();
 }
+
+void datastream_server_wait_for_connect(datastream_server * serv){
+  var ctx = (listen_ctx *) serv;
+  var activity = ctx->last_connect;
+  while(activity == ctx->last_connect)
+    iron_usleep(20000);
+  
+}
+

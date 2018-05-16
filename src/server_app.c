@@ -13,7 +13,8 @@ int main(){
   activity_listener->process = listen_activity;
   data_stream_listen_all(activity_listener);
   
-  datalog_server_run();
+  var serv = datastream_server_run();
+  datastream_server_wait_for_connect(serv);
 
   static data_stream src = {.name = "Test1"};
   static data_stream src2 = {.name = "Test2"};
