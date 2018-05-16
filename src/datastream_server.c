@@ -41,6 +41,7 @@ typedef struct{
   const char * root;
   struct MHD_Daemon *daemon;
   int last_connect;
+  int processing_ref;
 }listen_ctx;
 
 static const char * translate_dir(const char * root, const char * path){
@@ -306,6 +307,7 @@ static void data_update(const data_stream * s, const void * data, size_t length,
   size_t _length = strlen(s->name) + 1 + length + sizeof(message_list) + 1;
   listen_ctx * ctx = userdata;
   message_list * thing = NULL;
+  __sync_fetch_and_add(&ctx->processing_ref, 1);
 
   { // interlocked pop the first item.
   try_again:;
@@ -338,6 +340,7 @@ static void data_update(const data_stream * s, const void * data, size_t length,
     if(!__sync_bool_compare_and_swap(&ctx->messages, nxt, thing))
       goto try_again2;
   }
+  __sync_fetch_and_sub(&ctx->processing_ref, 1);
 }
 
 static listen_ctx * start_server(){
@@ -397,7 +400,12 @@ void datastream_server_wait_for_connect(datastream_server * serv){
   var ctx = (listen_ctx *) serv;
   var activity = ctx->last_connect;
   while(activity == ctx->last_connect)
-    iron_usleep(20000);
-  
+    iron_usleep(20000); 
+}
+
+void datastream_server_flush(datastream_server * serv){
+  var ctx = (listen_ctx *) serv;
+  while(ctx->messages != NULL && ctx->processing_ref > 0)
+    iron_usleep(20000); 
 }
 
