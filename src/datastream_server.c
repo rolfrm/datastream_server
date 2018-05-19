@@ -353,7 +353,10 @@ static listen_ctx * start_server(){
     root = getenv("DATASTREAM_SERVER_ROOT");
   }
 
-  ASSERT(file_exists(translate_dir(root, "page_header.html")));
+  if(!file_exists(translate_dir(root, "page_header.html"))){
+    ERROR("unable to find page_header.html. Consider setting DATASTREAM_SERVER_ROOT env variable\n");
+
+  }
   listen_ctx * ctx = alloc0(sizeof(*ctx));
   ctx->root = root;
 
