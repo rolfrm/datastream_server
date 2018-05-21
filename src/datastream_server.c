@@ -109,18 +109,23 @@ static void mark_activity(listen_ctx * ctx, const char * name, activity_state st
 static void get_system_update(listen_ctx * ctx, void (*fmt)(const char * _fmt, ...)){
   if(ctx->messages != NULL){
     var to_send = __sync_lock_test_and_set(&(ctx->messages), NULL);
-
-    var it = to_send;
-    var last = to_send;
-    while(it != NULL){
-      if(strcmp(it->name, weblog.name) != 0)
-	fmt("%s |   %s\n", it->name, it->message);
-      if(it->next == NULL){
-	last = it;
-	break;
-      }
-      it = it->next;
+    message_list * next = NULL;
+    message_list * head = to_send;
+    message_list * prev = NULL;
+    while(head != NULL){
+      next = head->next;
+      head->next = prev;
+      prev = head;
+      head = next;
     }
+    head = prev;
+    while(head != NULL){
+      fmt("%s |   %s\n", head->name, head->message);
+      head = head->next;
+    }
+
+    // list was reverse, now the last element is to_send.
+    var last = to_send;
     
   retry_set:;
     last->next = ctx->prev;
