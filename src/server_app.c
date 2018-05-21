@@ -20,7 +20,7 @@ int main(){
   static data_stream src2 = {.name = "Test2"};
   static data_stream src3 = {.name = "Testing 3"};
   int x = 2;
-  while(true){
+  for(int i = 0; i < 3; i++){
     iron_usleep(10000);
     dmsg(src, "%i Hello?", x);
     dmsg(src3, "_____ %i Hello?", x);
@@ -30,7 +30,7 @@ int main(){
     }
     x++;
   }
-  getchar();
+  datastream_server_flush(serv);
   return 0;
   
 }

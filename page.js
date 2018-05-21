@@ -73,6 +73,13 @@ function req(url, then, body){
 }
 
 function makeRequest() {
+    function clearLog(){
+	var area = document.getElementById("text2");
+	area.value = "";
+    }
+
+    document.getElementById("clearbutton").addEventListener("click", clearLog);
+    
     var activities_div = document.getElementById("activities");
     function update_activities2(){
 	function next(str){
@@ -81,7 +88,6 @@ function makeRequest() {
 	    window.setTimeout( function(){
 		req("/activities", next, body);
 	    }, 500);
-
 	}
 	req("/activities", next, format_activities());
     }
@@ -121,4 +127,6 @@ function makeRequest() {
     req("/update", updatetext, null);
     update_activities2();
 }
+
 window.addEventListener("load", makeRequest);
+

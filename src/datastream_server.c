@@ -58,7 +58,7 @@ static void mark_activity(listen_ctx * ctx, const char * name, activity_state st
   iron_mutex_lock(ctx->lock);
 
   for(size_t i = 0; i < ctx->activity_count; i++){
-    if(strncmp(ctx->activitys[i], name, ctx->activity_length[i]) == 0){
+    if(strcmp(ctx->activitys[i], name) == 0){
       var curstate = ctx->activity_state[i];
       if(override_state){
 
@@ -66,11 +66,13 @@ static void mark_activity(listen_ctx * ctx, const char * name, activity_state st
 	if((curstate == ACTIVITY_ENABLED || curstate == ACTIVITY_WAITING_FOR_ENABLED) && state == ACTIVITY_DISABLED){
 	  ctx->activity_state[i] = ACTIVITY_WAITING_FOR_DISABLED;
 	}else if((curstate == ACTIVITY_DISABLED || curstate == ACTIVITY_WAITING_FOR_DISABLED) && state == ACTIVITY_ENABLED){
+	  logd("WAIT FOR LISTEN: %s\n", name);
 	  ctx->activity_state[i] = ACTIVITY_WAITING_FOR_ENABLED;
 	}
       }else{
 	
 	if(curstate == ACTIVITY_WAITING_FOR_ENABLED){
+	  logd("ADDING FOR LISTEN: %s\n", ((data_stream *)s)->name);
 	  data_stream_listen(ctx->data_listener, (data_stream *) s);
 	  ctx->activity_state[i] = ACTIVITY_ENABLED;
 
@@ -92,11 +94,13 @@ static void mark_activity(listen_ctx * ctx, const char * name, activity_state st
   ctx->activitys[ctx->activity_count - 1]= fmtstr("%s", name);
   ctx->activity_length[ctx->activity_count - 1] = strlen(name) + 1;
   ctx->activity_state[ctx->activity_count - 1] = state;
-  var curstate = ctx->activity_state[ctx->activity_count - 1];
+  var curstate = (ctx->activity_state[ctx->activity_count - 1] = ACTIVITY_DISABLED);
   if((curstate == ACTIVITY_ENABLED || curstate == ACTIVITY_WAITING_FOR_ENABLED) && state == ACTIVITY_DISABLED)
     ctx->activity_state[ctx->activity_count - 1] = ACTIVITY_WAITING_FOR_DISABLED;
-  else if((curstate == ACTIVITY_DISABLED || curstate == ACTIVITY_WAITING_FOR_DISABLED) && state == ACTIVITY_ENABLED)
+  else if((curstate == ACTIVITY_DISABLED || curstate == ACTIVITY_WAITING_FOR_DISABLED) && state == ACTIVITY_ENABLED){
+    logd("WAIT FOR LISTEN: %s\n", name);
     ctx->activity_state[ctx->activity_count - 1] = ACTIVITY_WAITING_FOR_ENABLED;
+  }
   
   iron_mutex_unlock(ctx->lock);
 }
@@ -104,9 +108,11 @@ static void mark_activity(listen_ctx * ctx, const char * name, activity_state st
 static void get_system_update(listen_ctx * ctx, void (*fmt)(const char * _fmt, ...)){
   if(ctx->messages != NULL){
     var to_send = __sync_lock_test_and_set(&(ctx->messages), NULL);
+
     var it = to_send;
     var last = to_send;
     while(it != NULL){
+      logd("fmt.. %s %s\n", it->name,it->message);
       if(strcmp(it->name, weblog.name) != 0)
 	fmt("%s    %s\n", it->name, it->message);
       if(it->next == NULL){
@@ -141,11 +147,12 @@ static void get_activities(listen_ctx * ctx, void (*fmt)(const char * _fmt, ...)
     char value[nxt - val + 1];
     memcpy(value, val, nxt - val + 1);
     value[nxt - val - 1 + 1] = 0;
-
+    logd("marking %s\n", name);
     mark_activity(ctx, name, value[0] == '0' ? ACTIVITY_DISABLED : ACTIVITY_ENABLED, true, NULL);
     
     str = nxt + 1;
   }
+  ctx->last_connect += 1;
 
   bool first = true;
   for(size_t i = 0; i< ctx->activity_count; i++){
@@ -200,7 +207,7 @@ answer_to_connection (void * cls
   char * message = alloc(count);
   char * msg = message;
   listen_ctx * ctx = cls;
-  ctx->last_connect += 1;
+
   
   void fmt(const char * _fmt, ...){
 
@@ -260,6 +267,7 @@ answer_to_connection (void * cls
     get_activities(ctx, fmt, (char *) activities_data);
     if(activities_data != NULL)
       free(activities_data);
+
     
   }else if(strcmp("/update", url) == 0){
     var time1 = timestampf();
@@ -277,6 +285,7 @@ answer_to_connection (void * cls
     else if(msg - message == 0){
       // timeout
     }
+
   }else if(strcmp("/style.css", url) == 0){
     read_index_file(ctx, fmt, translate_dir(ctx->root, "style.css"));
   }else if(strcmp("/page.js", url) == 0){
@@ -297,12 +306,15 @@ static void activity_update(const data_stream * s, const void * data, size_t len
   UNUSED(data);
   UNUSED(length);
   listen_ctx * ctx = userdata;
+  logd("Activity: %s\n", s->name);
   mark_activity(ctx, s->name, ACTIVITY_DISABLED, false, s);
+
   //data_stream_listen(ctx->data_listener, (data_stream *) s);
 }
 
 static void data_update(const data_stream * s, const void * data, size_t length, void * userdata){
   if(data == NULL) return;
+
   //ASSERT(data != NULL);
   size_t _length = strlen(s->name) + 1 + length + sizeof(message_list) + 1;
   listen_ctx * ctx = userdata;
@@ -408,7 +420,8 @@ void datastream_server_wait_for_connect(datastream_server * serv){
 
 void datastream_server_flush(datastream_server * serv){
   var ctx = (listen_ctx *) serv;
-  while(ctx->messages != NULL && ctx->processing_ref > 0)
-    iron_usleep(20000); 
+  var activity = ctx->last_connect;
+  while((ctx->messages != NULL && ctx->processing_ref > 0) || activity == ctx->last_connect)
+    iron_usleep(20000);
 }
 
