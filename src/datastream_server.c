@@ -74,24 +74,18 @@ static void mark_activity(listen_ctx * ctx, const char * name, activity_state st
 	if((curstate == ACTIVITY_ENABLED || curstate == ACTIVITY_WAITING_FOR_ENABLED) && state == ACTIVITY_DISABLED){
 	  ctx->activity_state[i] = ACTIVITY_WAITING_FOR_DISABLED;
 	}else if((curstate == ACTIVITY_DISABLED || curstate == ACTIVITY_WAITING_FOR_DISABLED) && state == ACTIVITY_ENABLED){
-	  logd("WAIT FOR LISTEN: %s\n", name);
 	  ctx->activity_state[i] = ACTIVITY_WAITING_FOR_ENABLED;
 	}
       }else{
 	
 	if(curstate == ACTIVITY_WAITING_FOR_ENABLED){
-	  logd("ADDING FOR LISTEN: %s\n", ((data_stream *)s)->name);
 	  data_stream_listen(ctx->data_listener, (data_stream *) s);
 	  ctx->activity_state[i] = ACTIVITY_ENABLED;
-
-
 	}else if(curstate == ACTIVITY_WAITING_FOR_DISABLED){
 	  ctx->activity_state[i] = ACTIVITY_DISABLED;
 	  data_stream_unlisten(ctx->data_listener, (data_stream *) s);
 	}
       }
-
-	
       iron_mutex_unlock(ctx->lock);
       return;
     }
@@ -106,7 +100,6 @@ static void mark_activity(listen_ctx * ctx, const char * name, activity_state st
   if((curstate == ACTIVITY_ENABLED || curstate == ACTIVITY_WAITING_FOR_ENABLED) && state == ACTIVITY_DISABLED)
     ctx->activity_state[ctx->activity_count - 1] = ACTIVITY_WAITING_FOR_DISABLED;
   else if((curstate == ACTIVITY_DISABLED || curstate == ACTIVITY_WAITING_FOR_DISABLED) && state == ACTIVITY_ENABLED){
-    logd("WAIT FOR LISTEN: %s\n", name);
     ctx->activity_state[ctx->activity_count - 1] = ACTIVITY_WAITING_FOR_ENABLED;
   }
   
