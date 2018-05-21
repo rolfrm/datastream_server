@@ -79,6 +79,17 @@ function makeRequest() {
     }
 
     document.getElementById("clearbutton").addEventListener("click", clearLog);
+    function enterConsole(evt){
+	if(evt.keyCode == 13 && evt.ctrlKey){
+	    var console = document.getElementById("Console");
+	    function clearConsole(){
+		console.value = "";
+	    }
+	    req("/console", clearConsole, console.value);
+	}
+    }
+    document.getElementById("Console").addEventListener("keydown", enterConsole);
+    
     
     var activities_div = document.getElementById("activities");
     function update_activities2(){

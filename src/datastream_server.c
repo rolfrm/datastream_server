@@ -42,7 +42,15 @@ typedef struct{
   struct MHD_Daemon *daemon;
   int last_connect;
   int processing_ref;
+  console_handler console_handler_f;
+  void * console_handler_userdata;
 }listen_ctx;
+
+void datastream_server_set_console_handler(datastream_server * server, console_handler handler, void * userdata){
+  var ctx = (listen_ctx *) server;
+  ctx->console_handler_f = handler;
+  ctx->console_handler_userdata = userdata;
+}
 
 static const char * translate_dir(const char * root, const char * path){
   static __thread char buffer[1000];
@@ -112,9 +120,8 @@ static void get_system_update(listen_ctx * ctx, void (*fmt)(const char * _fmt, .
     var it = to_send;
     var last = to_send;
     while(it != NULL){
-      logd("fmt.. %s %s\n", it->name,it->message);
       if(strcmp(it->name, weblog.name) != 0)
-	fmt("%s    %s\n", it->name, it->message);
+	fmt("%s |   %s\n", it->name, it->message);
       if(it->next == NULL){
 	last = it;
 	break;
@@ -147,7 +154,6 @@ static void get_activities(listen_ctx * ctx, void (*fmt)(const char * _fmt, ...)
     char value[nxt - val + 1];
     memcpy(value, val, nxt - val + 1);
     value[nxt - val - 1 + 1] = 0;
-    logd("marking %s\n", name);
     mark_activity(ctx, name, value[0] == '0' ? ACTIVITY_DISABLED : ACTIVITY_ENABLED, true, NULL);
     
     str = nxt + 1;
@@ -250,10 +256,11 @@ answer_to_connection (void * cls
       
       if(*upload_data_size){
 	
-	pp->data = ralloc(pp->data, *upload_data_size + pp->count);
+	pp->data = ralloc(pp->data, *upload_data_size + pp->count+1);
 	void * newdata = pp->data + pp->count;
 	memcpy(newdata, upload_data, *upload_data_size);
 	pp->count += *upload_data_size;
+	((char *)pp->data)[pp->count] = 0;
 	*upload_data_size = 0;
 	
 	dealloc(message);
@@ -267,8 +274,6 @@ answer_to_connection (void * cls
     get_activities(ctx, fmt, (char *) activities_data);
     if(activities_data != NULL)
       free(activities_data);
-
-    
   }else if(strcmp("/update", url) == 0){
     var time1 = timestampf();
   goback:;
@@ -290,6 +295,42 @@ answer_to_connection (void * cls
     read_index_file(ctx, fmt, translate_dir(ctx->root, "style.css"));
   }else if(strcmp("/page.js", url) == 0){
     read_index_file(ctx, fmt, translate_dir(ctx->root, "page.js"));
+  }
+  else if(strcmp("/console", url) == 0){
+    post_ctx * pp = *con_cls;
+    void * activities_data = NULL;
+    if(strcmp(method, "POST") == 0){
+      
+      if(pp == NULL){
+	pp = alloc0(sizeof(*pp));
+	*con_cls = pp;
+	dealloc(message);
+	return MHD_YES;
+      }
+      
+      if(*upload_data_size){
+	
+	pp->data = ralloc(pp->data, *upload_data_size + pp->count + 1);
+	void * newdata = pp->data + pp->count;
+	memcpy(newdata, upload_data, *upload_data_size);
+	pp->count += *upload_data_size;
+	((char *)pp->data)[pp->count] = 0;
+	*upload_data_size = 0;
+	
+	dealloc(message);
+	return MHD_YES;
+      }else if(pp != NULL){
+	activities_data = pp->data;
+	free(pp);
+	*con_cls = NULL;
+      }
+    }
+    if(ctx->console_handler_f != NULL){
+      ctx->console_handler_f((datastream_server *) ctx, activities_data, ctx->console_handler_userdata);
+    }
+    
+    if(activities_data != NULL)
+      free(activities_data);
   }else
     read_index_file(ctx, fmt, translate_dir(ctx->root, "page_header.html"));
   message[msg - message] = 0;
@@ -306,7 +347,7 @@ static void activity_update(const data_stream * s, const void * data, size_t len
   UNUSED(data);
   UNUSED(length);
   listen_ctx * ctx = userdata;
-  logd("Activity: %s\n", s->name);
+
   mark_activity(ctx, s->name, ACTIVITY_DISABLED, false, s);
 
   //data_stream_listen(ctx->data_listener, (data_stream *) s);
