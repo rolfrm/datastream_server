@@ -153,7 +153,8 @@ static void get_activities(listen_ctx * ctx, void (*fmt)(const char * _fmt, ...)
     memcpy(value, val, nxt - val + 1);
     value[nxt - val - 1 + 1] = 0;
     mark_activity(ctx, name, value[0] == '0' ? ACTIVITY_DISABLED : ACTIVITY_ENABLED, true, NULL);
-    
+    if(*nxt == 0)
+      break;
     str = nxt + 1;
   }
   ctx->last_connect += 1;
@@ -246,18 +247,21 @@ answer_to_connection (void * cls
     if(strcmp(method, "POST") == 0){
 
       if(pp == NULL){
-	pp = alloc0(sizeof(*pp));
+	pp = alloc0(sizeof(post_ctx));
 	*con_cls = pp;
+	pp->data = NULL;
 	dealloc(message);
 	return MHD_YES;
       }
       
       if(*upload_data_size){
+
 	
-	pp->data = ralloc(pp->data, *upload_data_size + pp->count+1);
+	size_t s = *upload_data_size;
+	pp->data = ralloc(pp->data, s + pp->count+1);
 	void * newdata = pp->data + pp->count;
-	memcpy(newdata, upload_data, *upload_data_size);
-	pp->count += *upload_data_size;
+	memcpy(newdata, upload_data, s);
+	pp->count = pp->count + s;
 	((char *)pp->data)[pp->count] = 0;
 	*upload_data_size = 0;
 	
@@ -269,6 +273,7 @@ answer_to_connection (void * cls
 	*con_cls = NULL;
       }
     }
+    
     get_activities(ctx, fmt, (char *) activities_data);
     if(activities_data != NULL)
       free(activities_data);
