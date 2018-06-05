@@ -141,3 +141,40 @@ function makeRequest() {
 
 window.addEventListener("load", makeRequest);
 
+(function() {
+    var throttle = function(type, name, obj) {
+        obj = obj || window;
+        var running = false;
+        var func = function() {
+            if (running) { return; }
+            running = true;
+             requestAnimationFrame(function() {
+                obj.dispatchEvent(new CustomEvent(name));
+                running = false;
+            });
+        };
+        obj.addEventListener(type, func);
+    };
+
+    /* init - you can init any event */
+    throttle("resize", "optimizedResize");
+})();
+
+function timed_update_size(){
+    window.setTimeout( function(){
+	timed_update_size();
+    }, 2000);
+    update_size();
+}
+
+function update_size(){
+    var row = document.getElementById("row2");
+    var text = document.getElementById("text2");
+    var rect = row.getBoundingClientRect();
+    text.style.height = rect.height + "px";
+}
+
+// handle event
+window.addEventListener("optimizedResize", update_size);
+window.addEventListener("load", update_size);
+
