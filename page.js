@@ -123,13 +123,15 @@ function makeRequest() {
 		areas.scrollTo(0,areas.scrollHeight);
 	}
 	if(true){
-	    var area = document.getElementById("text2");
-	    area.value += txt;
-	    var cb = document.getElementById("checkBox");
-	    if(area.value.length > 20000)
-		area.value = area.value.substring(10000,20000);
-	    if(cb.checked)
-		area.scrollTo(0,area.scrollHeight);
+	    if(txt.length > 0){
+		var area = document.getElementById("text2");
+		area.value += txt;
+		var cb = document.getElementById("checkBox");
+		if(area.value.length > 20000)
+		    area.value = area.value.substring(10000,20000);
+		if(cb.checked)
+		    area.scrollTo(0,area.scrollHeight);
+	    }
 	}
 	window.setTimeout( function(){
 	    req("/update", updatetext, null);
