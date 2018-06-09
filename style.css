@@ -15,6 +15,7 @@ textarea {
 
     position:absolute;
     overflow:auto;
+    height:100%;
 }
 
 #grid {
