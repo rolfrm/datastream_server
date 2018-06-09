@@ -120,7 +120,15 @@ static void get_system_update(listen_ctx * ctx, void (*fmt)(const char * _fmt, .
     }
     head = prev;
     while(head != NULL){
-      fmt("%s |   %s\n", head->name, head->message);
+      size_t l = strlen(head->message) + 1;
+      char buf[l];
+      memcpy(buf, head->message, l);
+      for(int i = l - 1; i >= 0;i--){
+	if(buf[i] == '\n' || buf[i] == ' ' || buf[i] == 0){
+	  buf[i] = 0;
+	}else break;
+      }
+      fmt("%s |   %s\n", head->name, buf);
       head = head->next;
     }
 
